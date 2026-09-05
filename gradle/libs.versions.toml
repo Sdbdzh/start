@@ -1,0 +1,53 @@
+# 版本目录：全项目依赖统一在此管理
+[versions]
+# 构建链
+agp = "8.13.2"
+kotlin = "2.3.21"
+ksp = "2.3.11"
+
+# Compose（material3 1.4.0 = MD3 Expressive 稳定版）
+composeUi = "1.10.6"
+material3 = "1.4.0"
+materialIcons = "1.7.8"
+activityCompose = "1.12.4"
+lifecycle = "2.10.0"
+
+# 数据层
+room = "2.8.4"
+datastore = "1.2.1"
+coreKtx = "1.18.0"
+
+# 种子色生成 Material You 色板
+materialkolor = "4.1.1"
+
+[libraries]
+# AndroidX 基础
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
+androidx-lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "lifecycle" }
+androidx-lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycle" }
+
+# Compose（显式版本，不用 BOM，保证 material3 锁定 1.4.x Expressive 稳定线）
+compose-ui = { group = "androidx.compose.ui", name = "ui", version.ref = "composeUi" }
+compose-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics", version.ref = "composeUi" }
+compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview", version.ref = "composeUi" }
+compose-foundation = { group = "androidx.compose.foundation", name = "foundation", version.ref = "composeUi" }
+compose-animation = { group = "androidx.compose.animation", name = "animation", version.ref = "composeUi" }
+compose-material3 = { group = "androidx.compose.material3", name = "material3", version.ref = "material3" }
+compose-material-icons-core = { group = "androidx.compose.material", name = "material-icons-core", version.ref = "materialIcons" }
+compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling", version.ref = "composeUi" }
+
+# 数据层
+androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
+androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
+androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
+androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
+
+# 动态取色（种子色 -> 完整 M3 色板，支持 AMOLED 纯黑）
+materialkolor = { group = "com.materialkolor", name = "material-kolor", version.ref = "materialkolor" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }

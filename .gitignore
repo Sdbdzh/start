@@ -1,0 +1,15 @@
+# 环境工具（本地搭建的 JDK / Gradle / 下载缓存）
+.tools/
+
+# Gradle
+.gradle/
+build/
+app/build/
+
+# IDE
+.idea/
+*.iml
+local.properties
+
+# Kotlin
+.kotlin/

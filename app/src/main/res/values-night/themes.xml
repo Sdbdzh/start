@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 深色启动窗口，避免冷启动白屏闪烁 -->
+    <style name="Theme.Start" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/start_window_bg</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

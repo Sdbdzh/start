@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 启动瞬间窗口底色，进入 Compose 后由主题接管 -->
+    <color name="start_window_bg">#FAF9F8</color>
+    <color name="ic_launcher_background">#10131A</color>
+</resources>
