@@ -39,6 +39,8 @@ android {
 
     buildFeatures {
         compose = true
+        // 生成 BuildConfig：关于页版本号读取 versionName，避免硬编码漏改
+        buildConfig = true
     }
 }
 
