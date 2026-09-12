@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -35,11 +36,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.start.launcher.data.settings.ColorSource
 import com.start.launcher.data.settings.DarkStyle
+import com.start.launcher.data.settings.HapticIntensity
 import com.start.launcher.data.settings.SettingsRepository
 import com.start.launcher.data.settings.ThemeMode
 import com.start.launcher.data.settings.ThemeSettings
 import com.start.launcher.theme.Spacing
 import com.start.launcher.theme.StartShapes
+import com.start.launcher.ui.common.rememberHaptics
 import kotlinx.coroutines.launch
 
 /** 预设种子色（莫奈风格的高级灰调色板） */
@@ -60,18 +63,42 @@ private val SEED_COLORS = listOf(
 
 /**
  * 主题设置对话框：明暗模式 / 深色风格 / 取色源 / 种子色
+ * 外加数据管理：刷新应用、导出配置、导入配置
  */
 @Composable
 fun ThemeSettingsDialog(
+    viewModel: MainViewModel,
     onDismiss: () -> Unit,
+    onRefreshApps: () -> Unit,
+    onSnackbar: (String) -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
     val scope = rememberCoroutineScope()
+    val haptic = rememberHaptics()
 
     // 用 applicationContext 创建仓库读取设置
     val context = androidx.compose.ui.platform.LocalContext.current.applicationContext
     val settingsRepo = remember { SettingsRepository(context) }
     val settings by settingsRepo.settings.collectAsState(initial = ThemeSettings())
+
+    // 导出配置：保存到用户选择的位置
+    val exportLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        if (uri != null) {
+            onDismiss()
+            viewModel.exportConfig(uri) { _, msg -> onSnackbar(msg) }
+        }
+    }
+    // 导入配置：从用户选择的位置读取
+    val importLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            onDismiss()
+            viewModel.importConfig(uri) { _, msg -> onSnackbar(msg) }
+        }
+    }
 
     ModalDialog(onDismiss = onDismiss) {
         Column(
@@ -138,12 +165,52 @@ fun ThemeSettingsDialog(
                                         shape = CircleShape,
                                     )
                                     .clickable {
+                                        haptic()
                                         scope.launch { settingsRepo.setSeedColor(color.toArgbLong()) }
                                     },
                             )
                         }
                     }
                 }
+            }
+
+            // 触感反馈
+            SettingGroup(label = "触感反馈") {
+                LabeledSegment(
+                    label = "",
+                    items = HapticIntensity.entries.map { it.displayName() },
+                    selectedIndex = settings.hapticIntensity.ordinal,
+                    onSelect = { idx ->
+                        scope.launch { settingsRepo.setHapticIntensity(HapticIntensity.entries[idx]) }
+                    },
+                )
+            }
+
+            // 收藏栏
+            SettingGroup(label = "收藏栏") {
+                SwitchRow(
+                    label = "收藏栏按钮多层显示",
+                    checked = settings.tabMultiLayer,
+                    onCheckedChange = { checked ->
+                        scope.launch { settingsRepo.setTabMultiLayer(checked) }
+                    },
+                )
+            }
+
+            // 数据管理
+            SettingGroup(label = "数据") {
+                ActionRow(
+                    title = "刷新应用",
+                    description = "重新扫描已安装应用，新增/移除自动同步",
+                ) { onRefreshApps() }
+                ActionRow(
+                    title = "导出配置",
+                    description = "将分类与主题设置保存为 JSON 文件",
+                ) { exportLauncher.launch("start_config_v1.json") }
+                ActionRow(
+                    title = "导入配置",
+                    description = "从 JSON 文件恢复分类与主题设置",
+                ) { importLauncher.launch(arrayOf("application/json")) }
             }
 
             // 关于
@@ -157,6 +224,7 @@ fun ThemeSettingsDialog(
                     fontSize = 14.sp,
                     color = scheme.primary,
                     modifier = Modifier.clickable {
+                        haptic()
                         ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Sdbdzh/start")))
                     },
                 )
@@ -176,6 +244,26 @@ private fun SettingGroup(label: String, content: @Composable () -> Unit) {
     }
 }
 
+/** 可点击的操作行（标题 + 描述） */
+@Composable
+private fun ActionRow(title: String, description: String, onClick: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val haptic = rememberHaptics()
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable {
+                haptic()
+                onClick()
+            }
+            .padding(horizontal = Spacing.lg, vertical = Spacing.sm),
+    ) {
+        Text(title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = scheme.onSurface)
+        Text(description, fontSize = 12.sp, color = scheme.onSurfaceVariant)
+    }
+}
+
 private fun ThemeMode.displayName(): String = when (this) {
     ThemeMode.SYSTEM -> "跟随系统"
     ThemeMode.LIGHT -> "浅色"
@@ -190,6 +278,14 @@ private fun DarkStyle.displayName(): String = when (this) {
 private fun ColorSource.displayName(): String = when (this) {
     ColorSource.WALLPAPER -> "壁纸动态"
     ColorSource.SEED -> "种子色"
+}
+
+private fun HapticIntensity.displayName(): String = when (this) {
+    HapticIntensity.FOLLOW_SYSTEM -> "跟随系统"
+    HapticIntensity.OFF -> "关闭"
+    HapticIntensity.LIGHT -> "轻"
+    HapticIntensity.MEDIUM -> "中"
+    HapticIntensity.STRONG -> "强"
 }
 
 /** Color → ARGB Long（无符号），用于与 seedColor 比较/存储 */

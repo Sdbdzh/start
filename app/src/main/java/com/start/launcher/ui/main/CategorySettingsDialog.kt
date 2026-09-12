@@ -39,6 +39,7 @@ import com.start.launcher.data.model.Category
 import com.start.launcher.data.model.SortType
 import com.start.launcher.theme.Spacing
 import com.start.launcher.theme.StartShapes
+import com.start.launcher.ui.common.rememberHaptics
 
 /**
  * 分类设置页面（全屏）：重命名、添加/移除应用、排序方式、列数、缩放、删除
@@ -53,6 +54,7 @@ fun CategorySettingsDialog(
 ) {
     val scheme = MaterialTheme.colorScheme
     val allApps by viewModel.allApps.collectAsState()
+    val haptic = rememberHaptics()
 
     var name by remember { mutableStateOf(category.name) }
     var sortType by remember { mutableStateOf(category.sortType) }
@@ -108,7 +110,7 @@ fun CategorySettingsDialog(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { appsExpanded = !appsExpanded }
+                        .clickable { haptic(); appsExpanded = !appsExpanded }
                         .padding(horizontal = Spacing.lg, vertical = Spacing.md),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -151,6 +153,7 @@ fun CategorySettingsDialog(
                                     .clip(RoundedCornerShape(12.dp))
                                     .background(if (inCategory) scheme.primaryContainer.copy(alpha = 0.4f) else Color.Transparent)
                                     .clickable {
+                                        haptic()
                                         viewModel.moveToCategory(app, if (inCategory) null else category.id)
                                     }
                                     .padding(horizontal = Spacing.lg, vertical = Spacing.sm),
@@ -234,12 +237,13 @@ fun CategorySettingsDialog(
             )
         },
         bottomBar = {
-            TextButton(onClick = { viewModel.deleteCategory(category.id); onSnackbar("分类已删除"); onDismiss() }) {
+            TextButton(onClick = { haptic(); viewModel.deleteCategory(category.id); onSnackbar("分类已删除"); onDismiss() }) {
                 Text("删除分类", color = scheme.error)
             }
             Spacer(Modifier.width(Spacing.sm))
             Button(
                 onClick = {
+                    haptic()
                     if (name.isNotBlank()) {
                         viewModel.renameCategory(category.id, name)
                         onSnackbar("已保存")

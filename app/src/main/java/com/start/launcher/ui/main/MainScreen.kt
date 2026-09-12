@@ -2,6 +2,9 @@ package com.start.launcher.ui.main
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -9,6 +12,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -22,8 +26,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -54,6 +59,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -68,6 +74,8 @@ import com.start.launcher.data.model.SortType
 import com.start.launcher.theme.Motion
 import com.start.launcher.theme.Spacing
 import com.start.launcher.theme.StartShapes
+import com.start.launcher.ui.common.rememberHaptics
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
@@ -76,7 +84,9 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
     val allApps by viewModel.allApps.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
+    val themeSettings by viewModel.themeSettings.collectAsState()
     val scheme = MaterialTheme.colorScheme
+    val haptic = rememberHaptics()
 
     var selectedTabId by remember { mutableStateOf<Long?>(null) }
     var showCreateDialog by remember { mutableStateOf(false) }
@@ -107,14 +117,14 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
             .systemBarsPadding(),
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // ── 顶部栏：搜索 + 设置 ──────────────────
-            if (categories.isNotEmpty()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = Spacing.xl, vertical = Spacing.sm),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+            // ── 顶部栏：搜索 + 设置（设置按钮任何状态下可见） ──
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = Spacing.xl, vertical = Spacing.sm),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (categories.isNotEmpty()) {
                     OutlinedTextField(
                         value = searchQuery,
                         onValueChange = { viewModel.setSearchQuery(it) },
@@ -126,17 +136,17 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                         shape = RoundedCornerShape(16.dp),
                     )
                     Spacer(Modifier.width(Spacing.sm))
-                    // 设置按钮
-                    Box(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(CircleShape)
-                            .border(1.dp, scheme.outlineVariant, CircleShape)
-                            .clickable { showThemeSettings = true },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(Icons.Filled.Settings, contentDescription = "设置", tint = scheme.onSurfaceVariant)
-                    }
+                }
+                // 设置按钮
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .border(1.dp, scheme.outlineVariant, CircleShape)
+                        .clickable { haptic(); showThemeSettings = true },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Filled.Settings, contentDescription = "设置", tint = scheme.onSurfaceVariant)
                 }
             }
 
@@ -152,6 +162,7 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                     CapsuleTabRow(
                         categories = categories,
                         selectedId = selectedTabId,
+                        multiLayer = themeSettings.tabMultiLayer,
                         onSelect = { selectedTabId = it },
                         onCreateClick = { showCreateDialog = true },
                     )
@@ -183,6 +194,11 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                                 onSettingsClick = { settingsCategoryId = category.id },
                                 onSnackbar = { msg -> showSnackbar(msg) },
                             )
+                        } else {
+                            // 选中分类已不存在（如导入配置后），重新选中第一个
+                            LaunchedEffect(categories) {
+                                if (categories.isNotEmpty()) selectedTabId = categories.first().id
+                            }
                         }
                     }
                 }
@@ -231,7 +247,17 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
 
     // ── 主题设置对话框 ──────────────────────────
     if (showThemeSettings) {
-        ThemeSettingsDialog(onDismiss = { showThemeSettings = false })
+        ThemeSettingsDialog(
+            viewModel = viewModel,
+            onDismiss = { showThemeSettings = false },
+            onRefreshApps = {
+                showThemeSettings = false
+                viewModel.refreshApps { added, removed ->
+                    showSnackbar("已刷新：新增 $added 个，移除 $removed 个应用")
+                }
+            },
+            onSnackbar = { msg -> showSnackbar(msg) },
+        )
     }
 }
 
@@ -257,6 +283,7 @@ private fun sortedApps(apps: List<AppEntity>, sortType: SortType): List<AppEntit
 @Composable
 private fun EmptyState(onCreateClick: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
+    val haptic = rememberHaptics()
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center,
@@ -270,7 +297,7 @@ private fun EmptyState(onCreateClick: () -> Unit) {
                 modifier = Modifier
                     .clip(StartShapes.pill)
                     .background(scheme.primary)
-                    .clickable { onCreateClick() }
+                    .clickable { haptic(); onCreateClick() }
                     .padding(horizontal = Spacing.xxxl, vertical = Spacing.lg),
             ) {
                 Text("创建分类", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = scheme.onPrimary)
@@ -284,36 +311,62 @@ private fun EmptyState(onCreateClick: () -> Unit) {
 private fun CapsuleTabRow(
     categories: List<Category>,
     selectedId: Long?,
+    multiLayer: Boolean,
     onSelect: (Long) -> Unit,
     onCreateClick: () -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
 
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = Spacing.xl),
-        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        items(categories, key = { it.id }) { cat ->
-            CapsuleTab(
-                label = cat.name,
-                selected = selectedId == cat.id,
-                onClick = { onSelect(cat.id) },
-                scheme = scheme,
-            )
-        }
-        item {
-            Box(
-                modifier = Modifier
-                    .size(38.dp)
-                    .clip(CircleShape)
-                    .border(1.dp, scheme.outlineVariant, CircleShape)
-                    .clickable { onCreateClick() },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.Filled.Add, contentDescription = "添加分类", tint = scheme.primary)
+    if (multiLayer) {
+        // 多层显示：按钮自动换行排列
+        FlowRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Spacing.xl),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+        ) {
+            categories.forEach { cat ->
+                CapsuleTab(
+                    label = cat.name,
+                    selected = selectedId == cat.id,
+                    onClick = { onSelect(cat.id) },
+                    scheme = scheme,
+                )
             }
+            AddCategoryButton(onCreateClick = onCreateClick, scheme = scheme)
         }
+    } else {
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = Spacing.xl),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            items(categories, key = { it.id }) { cat ->
+                CapsuleTab(
+                    label = cat.name,
+                    selected = selectedId == cat.id,
+                    onClick = { onSelect(cat.id) },
+                    scheme = scheme,
+                )
+            }
+            item { AddCategoryButton(onCreateClick = onCreateClick, scheme = scheme) }
+        }
+    }
+}
+
+@Composable
+private fun AddCategoryButton(onCreateClick: () -> Unit, scheme: androidx.compose.material3.ColorScheme) {
+    val haptic = rememberHaptics()
+    Box(
+        modifier = Modifier
+            .size(38.dp)
+            .clip(CircleShape)
+            .border(1.dp, scheme.outlineVariant, CircleShape)
+            .clickable { haptic(); onCreateClick() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(Icons.Filled.Add, contentDescription = "添加分类", tint = scheme.primary)
     }
 }
 
@@ -332,12 +385,13 @@ private fun CapsuleTab(
         targetValue = if (selected) scheme.onPrimary else scheme.onSurfaceVariant,
         animationSpec = Motion.springColor,
     )
+    val haptic = rememberHaptics()
 
     Box(
         modifier = Modifier
             .clip(StartShapes.pill)
             .background(bgColor)
-            .clickable(onClick = onClick)
+            .clickable { haptic(); onClick() }
             .padding(horizontal = Spacing.xl, vertical = Spacing.sm),
     ) {
         Text(
@@ -359,6 +413,7 @@ private fun CategoryCard(
     onSnackbar: (String) -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
+    val haptic = rememberHaptics()
 
     Column(
         modifier = Modifier
@@ -389,7 +444,7 @@ private fun CategoryCard(
                     .size(44.dp)
                     .clip(CircleShape)
                     .border(1.dp, scheme.outlineVariant, CircleShape)
-                    .clickable { onSettingsClick() },
+                    .clickable { haptic(); onSettingsClick() },
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(Icons.Filled.Settings, contentDescription = "分类设置", tint = scheme.onSurfaceVariant)
@@ -408,7 +463,7 @@ private fun CategoryCard(
                         color = scheme.primary,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium,
-                        modifier = Modifier.clickable { onSettingsClick() },
+                        modifier = Modifier.clickable { haptic(); onSettingsClick() },
                     )
                 }
             }
@@ -419,13 +474,17 @@ private fun CategoryCard(
             val iconSize = baseIconSize * category.scale
             val labelSize = baseLabelSize * category.labelScale
 
+            val columns = category.columns.coerceIn(2, 6)
+            val gridState = remember(category.id) { LazyGridState() }
             LazyVerticalGrid(
-                columns = GridCells.Fixed(category.columns.coerceIn(2, 6)),
+                state = gridState,
+                columns = GridCells.Fixed(columns),
+                modifier = Modifier.fillMaxSize(),
                 horizontalArrangement = Arrangement.spacedBy(Spacing.md),
                 verticalArrangement = Arrangement.spacedBy(Spacing.xl),
-                contentPadding = PaddingValues(vertical = Spacing.sm),
+                contentPadding = PaddingValues(vertical = Spacing.sm, horizontal = 6.dp),
             ) {
-                items(apps, key = { it.id }) { app ->
+                itemsIndexed(apps, key = { _, it -> it.id }) { index, app ->
                     AppGridItem(
                         app = app,
                         viewModel = viewModel,
@@ -434,6 +493,7 @@ private fun CategoryCard(
                         labelSize = labelSize,
                         showTwoLine = category.showTwoLine,
                         onSnackbar = onSnackbar,
+                        index = index,
                     )
                 }
             }
@@ -451,8 +511,10 @@ private fun AppGridItem(
     labelSize: androidx.compose.ui.unit.TextUnit,
     showTwoLine: Boolean = false,
     onSnackbar: (String) -> Unit,
+    index: Int,
 ) {
     val scheme = MaterialTheme.colorScheme
+    val haptic = rememberHaptics()
     var showMenu by remember { mutableStateOf(false) }
     var iconBitmap by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
 
@@ -461,15 +523,42 @@ private fun AppGridItem(
         iconBitmap = bmp?.asImageBitmap()
     }
 
+    // 入场过渡：按序号错开，图标由不可见缓缓到可见
+    var entered by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        delay((index % 14) * 26L)
+        entered = true
+    }
+    val itemAlpha by animateFloatAsState(
+        targetValue = if (entered) 1f else 0f,
+        animationSpec = tween(300, easing = FastOutSlowInEasing),
+        label = "itemAlpha",
+    )
+    val itemScale by animateFloatAsState(
+        targetValue = if (entered) 1f else 0.92f,
+        animationSpec = tween(340, easing = FastOutSlowInEasing),
+        label = "itemScale",
+    )
+    val iconAlpha by animateFloatAsState(
+        targetValue = if (iconBitmap != null) 1f else 0f,
+        animationSpec = tween(500),
+        label = "iconAlpha",
+    )
+
     Box {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(StartShapes.card)
                 .combinedClickable(
-                    onClick = { viewModel.launchApp(app) },
-                    onLongClick = { showMenu = true },
+                    onClick = { haptic(); viewModel.launchApp(app) },
+                    onLongClick = { haptic(); showMenu = true },
                 )
+                .graphicsLayer {
+                    alpha = itemAlpha
+                    scaleX = itemScale
+                    scaleY = itemScale
+                }
                 .padding(Spacing.sm),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -483,7 +572,10 @@ private fun AppGridItem(
                         bitmap = bmp,
                         contentDescription = app.appName,
                         contentScale = ContentScale.Fit,
-                        modifier = Modifier.size(iconSize).clip(StartShapes.icon),
+                        modifier = Modifier
+                            .size(iconSize)
+                            .clip(StartShapes.icon)
+                            .graphicsLayer { alpha = iconAlpha },
                     )
                 } else {
                     Box(
@@ -546,6 +638,7 @@ private fun SearchResultsList(
     onLaunch: (AppEntity) -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
+    val haptic = rememberHaptics()
 
     if (apps.isEmpty()) {
         Box(Modifier.fillMaxSize().padding(Spacing.xxxl), contentAlignment = Alignment.Center) {
@@ -568,7 +661,7 @@ private fun SearchResultsList(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(14.dp))
-                    .clickable { onLaunch(app) }
+                    .clickable { haptic(); onLaunch(app) }
                     .padding(horizontal = Spacing.lg, vertical = Spacing.md),
                 verticalAlignment = Alignment.CenterVertically,
             ) {

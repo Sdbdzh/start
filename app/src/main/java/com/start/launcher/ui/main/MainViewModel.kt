@@ -3,13 +3,18 @@ package com.start.launcher.ui.main
 import android.app.Application
 import android.content.Intent
 import android.graphics.Bitmap
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.start.launcher.data.AppRepository
 import com.start.launcher.data.AppScanner
+import com.start.launcher.data.config.parseExportData
+import com.start.launcher.data.config.toJson
 import com.start.launcher.data.model.AppEntity
 import com.start.launcher.data.model.Category
 import com.start.launcher.data.model.SortType
+import com.start.launcher.data.settings.SettingsRepository
+import com.start.launcher.data.settings.ThemeSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,6 +22,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -25,18 +31,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = AppRepository(application)
     private val scanner = AppScanner(application)
+    private val settingsRepo = SettingsRepository(application)
     private val pm = application.packageManager
 
     init {
-        // 启动时扫描系统可启动应用并增量入库（未分类），
-        // 保证「选择应用」「应用管理」能看到设备上的应用。
+        // 启动不再全量扫描：仅当数据库为空（全新安装）时后台扫一次，
+        // 保证「选择应用」列表非空；之后由用户手动「刷新应用」。
+        // 扫描与图标预热全在 IO 线程，不再拖慢启动。
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
-                val existing = repository.addedPackageNames()
-                val newApps = scanner.scanLaunchableApps()
-                    .filter { it.packageName !in existing }
-                    .map { AppEntity(packageName = it.packageName, appName = it.appName) }
-                if (newApps.isNotEmpty()) repository.insertApps(newApps)
+                if (repository.isEmpty()) {
+                    repository.refreshInstalledApps(scanner.scanLaunchableApps())
+                }
+                // 预热分类内应用图标，主界面滚动时命中缓存不发 IO
+                val categorizedPkgs = repository.allApps.first()
+                    .filter { it.categoryId != null }
+                    .map { it.packageName }
+                scanner.preloadIcons(categorizedPkgs)
             }
         }
     }
@@ -47,6 +58,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val allApps: StateFlow<List<AppEntity>> = repository.allApps
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** 主题/界面设置（收藏栏换行等） */
+    val themeSettings: StateFlow<ThemeSettings> = settingsRepo.settings
+        .stateIn(viewModelScope, SharingStarted.Eagerly, ThemeSettings())
 
     // ── 搜索 ────────────────────────────────────
     private val _searchQuery = MutableStateFlow("")
@@ -61,6 +76,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     fun setSearchQuery(query: String) { _searchQuery.value = query }
+
+    // ── 刷新应用 ────────────────────────────────
+    /** 手动重新扫描已安装应用：新增入库、移除已卸载，回调 (新增数, 移除数) */
+    fun refreshApps(onResult: (Int, Int) -> Unit) {
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                val r = repository.refreshInstalledApps(scanner.scanLaunchableApps())
+                val categorizedPkgs = repository.allApps.first()
+                    .filter { it.categoryId != null }
+                    .map { it.packageName }
+                scanner.preloadIcons(categorizedPkgs)
+                r
+            }
+            onResult(result.first, result.second)
+        }
+    }
 
     // ── 分类操作 ─────────────────────────────────
     suspend fun createCategory(
@@ -144,5 +175,52 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // ── 图标 ────────────────────────────────────
     suspend fun loadIconBitmap(packageName: String): Bitmap? {
         return withContext(Dispatchers.IO) { scanner.loadIconBitmap(packageName) }
+    }
+
+    // ── 导入/导出配置 ───────────────────────────
+    /** 导出配置到用户选择的文件，回调 (成功, 提示) */
+    fun exportConfig(uri: Uri, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                try {
+                    val theme = settingsRepo.getCurrent()
+                    val json = repository.exportAll(theme).toJson()
+                    getApplication<Application>().contentResolver
+                        .openOutputStream(uri)?.use { out ->
+                            out.write(json.toByteArray(Charsets.UTF_8))
+                        } ?: return@withContext false to "无法写入文件"
+                    true to "配置已导出"
+                } catch (e: Exception) {
+                    false to "导出失败：${e.message}"
+                }
+            }
+            onResult(result.first, result.second)
+        }
+    }
+
+    /** 从用户选择的文件导入配置，回调 (成功, 提示) */
+    fun importConfig(uri: Uri, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                try {
+                    val json = getApplication<Application>().contentResolver
+                        .openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
+                        ?: return@withContext false to "无法读取文件"
+                    val data = parseExportData(json)
+                        ?: return@withContext false to "解析失败：不是有效的配置文件"
+                    repository.importAll(data)
+                    settingsRepo.setAll(data.theme)
+                    // 导入后预热图标缓存
+                    val categorizedPkgs = repository.allApps.first()
+                        .filter { it.categoryId != null }
+                        .map { it.packageName }
+                    scanner.preloadIcons(categorizedPkgs)
+                    true to "配置已导入（${data.categories.size} 个分类）"
+                } catch (e: Exception) {
+                    false to "导入失败：${e.message}"
+                }
+            }
+            onResult(result.first, result.second)
+        }
     }
 }

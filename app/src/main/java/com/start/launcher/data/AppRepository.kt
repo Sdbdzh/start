@@ -1,9 +1,14 @@
 package com.start.launcher.data
 
 import android.content.Context
+import androidx.room.withTransaction
+import com.start.launcher.data.config.ExportApp
+import com.start.launcher.data.config.ExportCategory
+import com.start.launcher.data.config.ExportData
 import com.start.launcher.data.model.AppEntity
 import com.start.launcher.data.model.Category
 import com.start.launcher.data.model.SortType
+import com.start.launcher.data.settings.ThemeSettings
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -113,6 +118,99 @@ class AppRepository(context: Context) {
     /** 已添加的包名集合 */
     suspend fun addedPackageNames(): Set<String> = appDao.allPackageNames().toSet()
 
-    /** 检查是否首次启动（还没有添加任何应用） */
-    suspend fun isFirstLaunch(): Boolean = appDao.allPackageNames().isEmpty()
+    /** 数据库是否为空（尚未扫描过任何应用） */
+    suspend fun isEmpty(): Boolean = appDao.allPackageNames().isEmpty()
+
+    /**
+     * 刷新已安装应用：新增的应用入库，已卸载的应用移除。
+     * 返回 (新增数量, 移除数量)。
+     */
+    suspend fun refreshInstalledApps(installed: List<AppScanner.AppItem>): Pair<Int, Int> {
+        val existing = appDao.allPackageNames()
+        val existingSet = existing.toSet()
+        val installedPkgs = installed.map { it.packageName }.toSet()
+
+        val newApps = installed
+            .filter { it.packageName !in existingSet }
+            .map { AppEntity(packageName = it.packageName, appName = it.appName) }
+        if (newApps.isNotEmpty()) appDao.insertAll(newApps)
+
+        existing.filter { it !in installedPkgs }.forEach { appDao.deleteByPackage(it) }
+
+        return newApps.size to existing.count { it !in installedPkgs }
+    }
+
+    // ── 导入/导出配置 ──────────────────────────
+
+    /** 导出全量数据：分类 + 分类内应用 + 未分类应用不计（配置只含用户组织的内容） */
+    suspend fun exportAll(theme: ThemeSettings): ExportData {
+        val categories = categoryDao.getAll()
+        val apps = appDao.getAllApps()
+        val byCategory = apps.groupBy { it.categoryId }
+
+        val exportCategories = categories.map { c ->
+            val catApps = (byCategory[c.id] ?: emptyList()).map { a ->
+                ExportApp(
+                    packageName = a.packageName,
+                    appName = a.appName,
+                    sortOrder = a.sortOrder,
+                    isPinned = a.isPinned,
+                    launchCount = a.launchCount,
+                    lastLaunchTime = a.lastLaunchTime,
+                )
+            }
+            ExportCategory(
+                name = c.name,
+                sortOrder = c.sortOrder,
+                sortType = c.sortType,
+                columns = c.columns,
+                scale = c.scale,
+                labelScale = c.labelScale,
+                showTwoLine = c.showTwoLine,
+                isSystem = c.isSystem,
+                apps = catApps,
+            )
+        }
+        return ExportData(categories = exportCategories, theme = theme)
+    }
+
+    /** 导入配置：清空现有数据后重建分类与归属关系 */
+    suspend fun importAll(data: ExportData) {
+        db.withTransaction {
+            // 先删应用再删分类（应用外键引用分类）
+            appDao.clearApps()
+            categoryDao.clearCategories()
+
+            data.categories.forEach { c ->
+                val categoryId = categoryDao.insert(
+                    Category(
+                        name = c.name,
+                        sortOrder = c.sortOrder,
+                        sortType = c.sortType,
+                        columns = c.columns,
+                        scale = c.scale,
+                        labelScale = c.labelScale,
+                        showTwoLine = c.showTwoLine,
+                        isSystem = c.isSystem,
+                    )
+                )
+                // 分类 id 可能为 0 说明插入冲突（不应发生），跳过其应用
+                if (categoryId > 0 && c.apps.isNotEmpty()) {
+                    appDao.insertAll(
+                        c.apps.map { a ->
+                            AppEntity(
+                                packageName = a.packageName,
+                                appName = a.appName,
+                                categoryId = categoryId,
+                                sortOrder = a.sortOrder,
+                                isPinned = a.isPinned,
+                                launchCount = a.launchCount,
+                                lastLaunchTime = a.lastLaunchTime,
+                            )
+                        }
+                    )
+                }
+            }
+        }
+    }
 }

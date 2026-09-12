@@ -34,4 +34,14 @@ interface CategoryDao {
     /** 统计分类下应用数 */
     @Query("SELECT COUNT(*) FROM apps WHERE category_id = :categoryId")
     suspend fun appCount(categoryId: Long): Int
+
+    // ── 导入/导出配置 ─────────────────────────
+
+    /** 一次性全量获取（用于导出配置） */
+    @Query("SELECT * FROM categories ORDER BY sort_order ASC")
+    suspend fun getAll(): List<Category>
+
+    /** 清空分类表（导入配置时重建） */
+    @Query("DELETE FROM categories")
+    suspend fun clearCategories()
 }

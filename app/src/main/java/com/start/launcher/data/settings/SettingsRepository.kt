@@ -23,7 +23,8 @@ class SettingsRepository(private val context: Context) {
         val DARK_STYLE = intPreferencesKey("dark_style")
         val COLOR_SOURCE = intPreferencesKey("color_source")
         val SEED_COLOR = longPreferencesKey("seed_color")
-        val SETUP_COMPLETED = booleanPreferencesKey("setup_completed")
+        val HAPTIC = intPreferencesKey("haptic_intensity")
+        val TAB_MULTI_LAYER = booleanPreferencesKey("tab_multi_layer")
     }
 
     val settings: Flow<ThemeSettings> = context.themeDataStore.data.map { prefs ->
@@ -32,6 +33,9 @@ class SettingsRepository(private val context: Context) {
             darkStyle = prefs[Keys.DARK_STYLE]?.let { DarkStyle.entries[it] } ?: DarkStyle.SOFT,
             colorSource = prefs[Keys.COLOR_SOURCE]?.let { ColorSource.entries[it] } ?: ColorSource.WALLPAPER,
             seedColor = prefs[Keys.SEED_COLOR] ?: 0xFF4C6FFF,
+            hapticIntensity = prefs[Keys.HAPTIC]?.let { HapticIntensity.entries[it] }
+                ?: HapticIntensity.FOLLOW_SYSTEM,
+            tabMultiLayer = prefs[Keys.TAB_MULTI_LAYER] ?: false,
         )
     }
 
@@ -51,13 +55,28 @@ class SettingsRepository(private val context: Context) {
         context.themeDataStore.edit { it[Keys.SEED_COLOR] = color }
     }
 
-    // ── 首启标记 ────────────────────────────────
+    suspend fun setHapticIntensity(intensity: HapticIntensity) {
+        context.themeDataStore.edit { it[Keys.HAPTIC] = intensity.ordinal }
+    }
 
-    /** 是否已完成首启向导 */
-    suspend fun isSetupCompleted(): Boolean =
-        context.themeDataStore.data.first()[Keys.SETUP_COMPLETED] ?: false
+    suspend fun setTabMultiLayer(enabled: Boolean) {
+        context.themeDataStore.edit { it[Keys.TAB_MULTI_LAYER] = enabled }
+    }
 
-    suspend fun setSetupCompleted(completed: Boolean) {
-        context.themeDataStore.edit { it[Keys.SETUP_COMPLETED] = completed }
+    // ── 导入配置 ────────────────────────────────
+
+    /** 读取当前主题设置（导出配置用） */
+    suspend fun getCurrent(): ThemeSettings = settings.first()
+
+    /** 一次性写入全部主题设置（导入配置用） */
+    suspend fun setAll(s: ThemeSettings) {
+        context.themeDataStore.edit {
+            it[Keys.MODE] = s.mode.ordinal
+            it[Keys.DARK_STYLE] = s.darkStyle.ordinal
+            it[Keys.COLOR_SOURCE] = s.colorSource.ordinal
+            it[Keys.SEED_COLOR] = s.seedColor
+            it[Keys.HAPTIC] = s.hapticIntensity.ordinal
+            it[Keys.TAB_MULTI_LAYER] = s.tabMultiLayer
+        }
     }
 }

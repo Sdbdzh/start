@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- 点击震动反馈（自定义强度时直接驱动振动器） -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
     <!-- 声明需要查询其他应用：用于扫描可启动应用 + 获取图标 -->
     <queries>
         <intent>

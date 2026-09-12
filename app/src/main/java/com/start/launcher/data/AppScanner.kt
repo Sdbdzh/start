@@ -7,37 +7,35 @@ import android.util.LruCache
 import androidx.core.graphics.drawable.toBitmap
 
 /**
- * 应用扫描器：在 IO 线程查询可启动应用，同时将图标转为固定尺寸 Bitmap，
- * 避免 Compose 主线程渲染 Drawable 导致的 OOM / ANR。
- * 内置 LRU 缓存，避免重复加载同一图标。
+ * 应用扫描器：在 IO 线程查询可启动应用。
+ *
+ * 性能设计：
+ * - 扫描只取包名/名称（轻量），图标一律按需加载 + 内存缓存，
+ *   避免启动时批量转图标造成的卡顿与内存峰值；
+ * - 图标缓存 512 项（96×96 约 36KB/张），配合 [preloadIcons] 预热，
+ *   主界面滚动时全部命中缓存，不再触发 IO。
  */
 class AppScanner(private val context: Context) {
 
     private val selfPackage = context.packageName
 
-    /** 图标内存缓存（最多 100 个），避免快速滑动时重复加载导致掉帧 */
-    private val iconCache = LruCache<String, Bitmap>(100)
+    /** 图标内存缓存，避免重复加载导致掉帧 */
+    private val iconCache = LruCache<String, Bitmap>(512)
 
+    /** 扫描设备上可启动应用（不含自身），按名称排序 */
     fun scanLaunchableApps(): List<AppItem> {
         val intent = Intent(Intent.ACTION_MAIN).apply {
             addCategory(Intent.CATEGORY_LAUNCHER)
         }
         val pm = context.packageManager
-        val activities = pm.queryIntentActivities(intent, 0)
 
-        return activities
+        return pm.queryIntentActivities(intent, 0)
             .mapNotNull { resolve ->
                 val pkg = resolve.activityInfo.packageName
                 if (pkg == selfPackage) return@mapNotNull null
-
-                // 在 IO 线程完成 Drawable → Bitmap 转换，固定 96×96 避免 OOM
-                val bitmap = resolve.loadIcon(pm).toBitmap(96, 96)
-                iconCache.put(pkg, bitmap)
-
                 AppItem(
                     packageName = pkg,
                     appName = resolve.loadLabel(pm).toString(),
-                    bitmap = bitmap,
                 )
             }
             // 同一应用可能有多个 launcher activity，按包名去重，避免 LazyColumn key 重复崩溃
@@ -45,7 +43,7 @@ class AppScanner(private val context: Context) {
             .sortedBy { it.appName }
     }
 
-    /** 获取单个应用图标 Bitmap（优先从缓存取） */
+    /** 获取单个应用图标 Bitmap（优先从缓存取，IO 线程调用） */
     fun loadIconBitmap(packageName: String): Bitmap? {
         iconCache.get(packageName)?.let { return it }
         return try {
@@ -57,10 +55,16 @@ class AppScanner(private val context: Context) {
         }
     }
 
+    /**
+     * 后台预热图标缓存（IO 线程调用）。
+     * 只预热分类内常用应用，上限 300 张控制内存。
+     */
+    fun preloadIcons(packageNames: List<String>) {
+        packageNames.take(300).forEach { loadIconBitmap(it) }
+    }
+
     data class AppItem(
         val packageName: String,
         val appName: String,
-        /** 96×96 固定尺寸 Bitmap，已在 IO 线程生成 */
-        val bitmap: Bitmap,
     )
 }

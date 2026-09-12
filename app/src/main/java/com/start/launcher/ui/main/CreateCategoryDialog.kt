@@ -48,6 +48,7 @@ import com.start.launcher.data.model.AppEntity
 import com.start.launcher.data.model.SortType
 import com.start.launcher.theme.Spacing
 import com.start.launcher.theme.StartShapes
+import com.start.launcher.ui.common.rememberHaptics
 import kotlinx.coroutines.launch
 
 /**
@@ -63,6 +64,7 @@ fun CreateCategoryDialog(
     val scheme = MaterialTheme.colorScheme
     val allApps by viewModel.allApps.collectAsState()
     val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val haptic = rememberHaptics()
 
     var name by remember { mutableStateOf("") }
     var selectedPkgNames by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -108,7 +110,7 @@ fun CreateCategoryDialog(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { appsExpanded = !appsExpanded }
+                        .clickable { haptic(); appsExpanded = !appsExpanded }
                         .padding(horizontal = Spacing.lg, vertical = Spacing.md),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -139,6 +141,7 @@ fun CreateCategoryDialog(
                         ) {
                             TextButton(
                                 onClick = {
+                                    haptic()
                                     selectedPkgNames = if (selectedPkgNames.size == filteredApps.size && filteredApps.isNotEmpty()) {
                                         selectedPkgNames - filteredApps.map { it.packageName }.toSet()
                                     } else {
@@ -173,6 +176,7 @@ fun CreateCategoryDialog(
                                     .clip(RoundedCornerShape(12.dp))
                                     .background(if (selected) scheme.primaryContainer.copy(alpha = 0.4f) else Color.Transparent)
                                     .clickable {
+                                        haptic()
                                         selectedPkgNames = selectedPkgNames.toMutableSet().apply {
                                             if (contains(app.packageName)) remove(app.packageName) else add(app.packageName)
                                         }
@@ -251,10 +255,11 @@ fun CreateCategoryDialog(
             )
         },
         bottomBar = {
-            TextButton(onClick = onDismiss, enabled = !creating) { Text("取消") }
+            TextButton(onClick = { haptic(); onDismiss() }, enabled = !creating) { Text("取消") }
             Spacer(Modifier.width(Spacing.sm))
             Button(
                 onClick = {
+                    haptic()
                     if (name.isNotBlank() && selectedPkgNames.isNotEmpty() && !creating) {
                         creating = true
                         scope.launch {
@@ -282,6 +287,7 @@ fun SortType.displayName(): String = when (this) {
 @Composable
 fun LabeledSegment(label: String, items: List<String>, selectedIndex: Int, onSelect: (Int) -> Unit) {
     val scheme = MaterialTheme.colorScheme
+    val haptic = rememberHaptics()
     Column {
         Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = scheme.onSurfaceVariant)
         Spacer(Modifier.height(Spacing.xs))
@@ -300,7 +306,10 @@ fun LabeledSegment(label: String, items: List<String>, selectedIndex: Int, onSel
                         .padding(3.dp)
                         .clip(StartShapes.pill)
                         .background(if (selected) scheme.primary else Color.Transparent)
-                        .clickable { onSelect(index) }
+                        .clickable {
+                            haptic()
+                            onSelect(index)
+                        }
                         .padding(vertical = 9.dp),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -353,6 +362,7 @@ fun FullScreenPage(
     bottomBar: @Composable () -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
+    val haptic = rememberHaptics()
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -372,7 +382,7 @@ fun FullScreenPage(
                         .size(40.dp)
                         .clip(CircleShape)
                         .background(scheme.surfaceContainerHigh)
-                        .clickable { onBack() },
+                        .clickable { haptic(); onBack() },
                     contentAlignment = Alignment.Center,
                 ) {
                     Text("←", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = scheme.onSurface)
@@ -417,17 +427,27 @@ fun FullScreenPage(
 @Composable
 fun SwitchRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
     val scheme = MaterialTheme.colorScheme
+    val haptic = rememberHaptics()
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .clickable { onCheckedChange(!checked) }
+            .clickable {
+                haptic()
+                onCheckedChange(!checked)
+            }
             .padding(horizontal = Spacing.lg, vertical = Spacing.sm),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = scheme.onSurface)
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Switch(
+            checked = checked,
+            onCheckedChange = {
+                haptic()
+                onCheckedChange(it)
+            },
+        )
     }
 }
 

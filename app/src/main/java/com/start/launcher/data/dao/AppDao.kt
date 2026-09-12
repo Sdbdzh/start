@@ -67,4 +67,18 @@ interface AppDao {
     /** 所有已添加的包名（用于扫描时过滤） */
     @Query("SELECT package_name FROM apps")
     suspend fun allPackageNames(): List<String>
+
+    // ── 导入/导出配置 ─────────────────────────
+
+    /** 一次性全量获取（用于导出配置） */
+    @Query("SELECT * FROM apps")
+    suspend fun getAllApps(): List<AppEntity>
+
+    /** 按包名删除（刷新时移除已卸载应用） */
+    @Query("DELETE FROM apps WHERE package_name = :packageName")
+    suspend fun deleteByPackage(packageName: String)
+
+    /** 清空应用表（导入配置时重建） */
+    @Query("DELETE FROM apps")
+    suspend fun clearApps()
 }
