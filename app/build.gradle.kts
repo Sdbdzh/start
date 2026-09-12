@@ -14,8 +14,8 @@ android {
         // 按 Android 16+ 专属方案锁定：minSdk 36
         minSdk = 36
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
     }
 
     buildTypes {

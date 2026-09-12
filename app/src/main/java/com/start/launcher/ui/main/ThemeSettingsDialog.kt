@@ -215,7 +215,7 @@ fun ThemeSettingsDialog(
 
             // 关于
             SettingGroup(label = "关于") {
-                Text("START v0.1.0", fontSize = 14.sp, color = scheme.onSurface)
+                Text("START v0.2.0", fontSize = 14.sp, color = scheme.onSurface)
                 Text("作者：Enik", fontSize = 14.sp, color = scheme.onSurface)
                 Text("QQ：1334204015", fontSize = 14.sp, color = scheme.onSurface)
                 val ctx = androidx.compose.ui.platform.LocalContext.current
