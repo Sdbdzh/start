@@ -8,6 +8,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.start.launcher.data.AppRepository
 import com.start.launcher.data.AppScanner
+import com.start.launcher.data.BackgroundStore
 import com.start.launcher.data.config.parseExportData
 import com.start.launcher.data.config.toJson
 import com.start.launcher.data.model.AppEntity
@@ -23,6 +24,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -62,6 +64,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** 主题/界面设置（收藏栏换行等） */
     val themeSettings: StateFlow<ThemeSettings> = settingsRepo.settings
         .stateIn(viewModelScope, SharingStarted.Eagerly, ThemeSettings())
+
+    /**
+     * 数据库首个数据已到达：到达前主界面显示加载态，
+     * 避免「还没有分类」空状态在启动瞬间闪现。
+     */
+    val dataReady: StateFlow<Boolean> = repository.categories
+        .map { true }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    /** 背景图文件版本号：保存/清除后 +1，驱动界面重载位图（文件路径不变，不能只看 bgEnabled） */
+    private val _bgVersion = MutableStateFlow(0)
+    val bgVersion: StateFlow<Int> = _bgVersion.asStateFlow()
 
     // ── 搜索 ────────────────────────────────────
     private val _searchQuery = MutableStateFlow("")
@@ -175,6 +189,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // ── 图标 ────────────────────────────────────
     suspend fun loadIconBitmap(packageName: String): Bitmap? {
         return withContext(Dispatchers.IO) { scanner.loadIconBitmap(packageName) }
+    }
+
+    // ── 背景图 ──────────────────────────────────
+    /** 保存用户选择的背景图到私有目录并启用，回调 (成功, 提示) */
+    fun saveBackground(uri: Uri, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                BackgroundStore.saveFromUri(getApplication(), uri)
+            }
+            if (ok) {
+                settingsRepo.setBgEnabled(true)
+                _bgVersion.value++
+            }
+            onResult(ok, if (ok) "背景已更新" else "背景保存失败")
+        }
+    }
+
+    /** 清除背景图 */
+    fun clearBackground(onResult: (Boolean, String) -> Unit = { _, _ -> }) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { BackgroundStore.clear(getApplication()) }
+            settingsRepo.setBgEnabled(false)
+            _bgVersion.value++
+            onResult(true, "背景已清除")
+        }
     }
 
     // ── 导入/导出配置 ───────────────────────────

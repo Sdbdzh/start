@@ -2,6 +2,9 @@ package com.start.launcher.ui.main
 
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,8 +21,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,6 +39,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.start.launcher.data.settings.BgScaleType
 import com.start.launcher.data.settings.ColorSource
 import com.start.launcher.data.settings.DarkStyle
 import com.start.launcher.data.settings.HapticIntensity
@@ -97,6 +103,14 @@ fun ThemeSettingsDialog(
         if (uri != null) {
             onDismiss()
             viewModel.importConfig(uri) { _, msg -> onSnackbar(msg) }
+        }
+    }
+    // 选择背景图（系统照片选择器）
+    val pickBackgroundLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri != null) {
+            viewModel.saveBackground(uri) { _, msg -> onSnackbar(msg) }
         }
     }
 
@@ -193,6 +207,108 @@ fun ThemeSettingsDialog(
                     checked = settings.tabMultiLayer,
                     onCheckedChange = { checked ->
                         scope.launch { settingsRepo.setTabMultiLayer(checked) }
+                    },
+                )
+            }
+
+            // 背景
+            SettingGroup(label = "背景") {
+                if (settings.bgEnabled) {
+                    LabeledSegment(
+                        label = "显示方式",
+                        items = listOf("拉伸", "自适应", "裁剪"),
+                        selectedIndex = settings.bgScaleType.ordinal,
+                        onSelect = { idx ->
+                            scope.launch { settingsRepo.setBgScaleType(BgScaleType.entries[idx]) }
+                        },
+                    )
+                    // 顶部面板不透明度
+                    var panelOpacity by remember { mutableStateOf(settings.panelOpacity) }
+                    LaunchedEffect(settings.panelOpacity) { panelOpacity = settings.panelOpacity }
+                    Column {
+                        Text("面板不透明度", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = scheme.onSurface)
+                        Slider(
+                            value = panelOpacity,
+                            onValueChange = { panelOpacity = it },
+                            onValueChangeFinished = {
+                                scope.launch { settingsRepo.setPanelOpacity(panelOpacity) }
+                            },
+                            valueRange = 0.1f..1f,
+                        )
+                    }
+                    // 顶部面板模糊度
+                    var panelBlur by remember { mutableStateOf(settings.panelBlur) }
+                    LaunchedEffect(settings.panelBlur) { panelBlur = settings.panelBlur }
+                    Column {
+                        Text("面板模糊度", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = scheme.onSurface)
+                        Slider(
+                            value = panelBlur,
+                            onValueChange = { panelBlur = it },
+                            onValueChangeFinished = {
+                                scope.launch { settingsRepo.setPanelBlur(panelBlur) }
+                            },
+                            valueRange = 0f..30f,
+                        )
+                    }
+                    // 亮度
+                    var brightness by remember { mutableStateOf(settings.bgBrightness) }
+                    LaunchedEffect(settings.bgBrightness) { brightness = settings.bgBrightness }
+                    Column {
+                        Text("亮度", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = scheme.onSurface)
+                        Slider(
+                            value = brightness,
+                            onValueChange = { brightness = it },
+                            onValueChangeFinished = {
+                                scope.launch { settingsRepo.setBgBrightness(brightness) }
+                            },
+                            valueRange = 0.2f..1f,
+                        )
+                    }
+                    // 模糊度
+                    var blurValue by remember { mutableStateOf(settings.bgBlur) }
+                    LaunchedEffect(settings.bgBlur) { blurValue = settings.bgBlur }
+                    Column {
+                        Text("模糊度", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = scheme.onSurface)
+                        Slider(
+                            value = blurValue,
+                            onValueChange = { blurValue = it },
+                            onValueChangeFinished = {
+                                scope.launch { settingsRepo.setBgBlur(blurValue) }
+                            },
+                            valueRange = 0f..25f,
+                        )
+                    }
+                    ActionRow(
+                        title = "更换背景图片",
+                        description = "重新选择一张图片",
+                    ) {
+                        pickBackgroundLauncher.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                        )
+                    }
+                    ActionRow(
+                        title = "清除背景图片",
+                        description = "恢复默认背景",
+                    ) { viewModel.clearBackground { _, msg -> onSnackbar(msg) } }
+                } else {
+                    ActionRow(
+                        title = "设置背景图片",
+                        description = "选择一张图片作为主页面背景",
+                    ) {
+                        pickBackgroundLauncher.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                        )
+                    }
+                }
+            }
+
+            // 主页面
+            SettingGroup(label = "主页面") {
+                SwitchRow(
+                    label = "隐藏搜索框",
+                    checked = settings.hideSearchBar,
+                    onCheckedChange = { checked ->
+                        scope.launch { settingsRepo.setHideSearchBar(checked) }
                     },
                 )
             }

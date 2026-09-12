@@ -14,8 +14,8 @@ android {
         // 按 Android 16+ 专属方案锁定：minSdk 36
         minSdk = 36
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
     }
 
     buildTypes {
@@ -70,6 +70,8 @@ dependencies {
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
     implementation(libs.androidx.datastore.preferences)
+    // 背景图 EXIF 旋转读取
+    implementation(libs.androidx.exifinterface)
 
     // 动态取色：种子色 -> M3 色板（含 AMOLED 支持）
     implementation(libs.materialkolor)

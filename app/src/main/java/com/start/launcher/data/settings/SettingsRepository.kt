@@ -3,6 +3,7 @@ package com.start.launcher.data.settings
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -25,6 +26,13 @@ class SettingsRepository(private val context: Context) {
         val SEED_COLOR = longPreferencesKey("seed_color")
         val HAPTIC = intPreferencesKey("haptic_intensity")
         val TAB_MULTI_LAYER = booleanPreferencesKey("tab_multi_layer")
+        val BG_ENABLED = booleanPreferencesKey("bg_enabled")
+        val BG_BRIGHTNESS = floatPreferencesKey("bg_brightness")
+        val BG_BLUR = floatPreferencesKey("bg_blur")
+        val BG_SCALE_TYPE = intPreferencesKey("bg_scale_type")
+        val PANEL_OPACITY = floatPreferencesKey("panel_opacity")
+        val PANEL_BLUR = floatPreferencesKey("panel_blur")
+        val HIDE_SEARCH_BAR = booleanPreferencesKey("hide_search_bar")
     }
 
     val settings: Flow<ThemeSettings> = context.themeDataStore.data.map { prefs ->
@@ -36,6 +44,13 @@ class SettingsRepository(private val context: Context) {
             hapticIntensity = prefs[Keys.HAPTIC]?.let { HapticIntensity.entries[it] }
                 ?: HapticIntensity.FOLLOW_SYSTEM,
             tabMultiLayer = prefs[Keys.TAB_MULTI_LAYER] ?: false,
+            bgEnabled = prefs[Keys.BG_ENABLED] ?: false,
+            bgBrightness = (prefs[Keys.BG_BRIGHTNESS] ?: 1f).coerceIn(0.2f, 1f),
+            bgBlur = (prefs[Keys.BG_BLUR] ?: 0f).coerceIn(0f, 25f),
+            bgScaleType = prefs[Keys.BG_SCALE_TYPE]?.let { BgScaleType.entries[it] } ?: BgScaleType.CROP,
+            panelOpacity = (prefs[Keys.PANEL_OPACITY] ?: 0.55f).coerceIn(0.1f, 1f),
+            panelBlur = (prefs[Keys.PANEL_BLUR] ?: 12f).coerceIn(0f, 30f),
+            hideSearchBar = prefs[Keys.HIDE_SEARCH_BAR] ?: false,
         )
     }
 
@@ -63,6 +78,34 @@ class SettingsRepository(private val context: Context) {
         context.themeDataStore.edit { it[Keys.TAB_MULTI_LAYER] = enabled }
     }
 
+    suspend fun setBgEnabled(enabled: Boolean) {
+        context.themeDataStore.edit { it[Keys.BG_ENABLED] = enabled }
+    }
+
+    suspend fun setBgBrightness(value: Float) {
+        context.themeDataStore.edit { it[Keys.BG_BRIGHTNESS] = value.coerceIn(0.2f, 1f) }
+    }
+
+    suspend fun setBgBlur(value: Float) {
+        context.themeDataStore.edit { it[Keys.BG_BLUR] = value.coerceIn(0f, 25f) }
+    }
+
+    suspend fun setBgScaleType(type: BgScaleType) {
+        context.themeDataStore.edit { it[Keys.BG_SCALE_TYPE] = type.ordinal }
+    }
+
+    suspend fun setPanelOpacity(value: Float) {
+        context.themeDataStore.edit { it[Keys.PANEL_OPACITY] = value.coerceIn(0.1f, 1f) }
+    }
+
+    suspend fun setPanelBlur(value: Float) {
+        context.themeDataStore.edit { it[Keys.PANEL_BLUR] = value.coerceIn(0f, 30f) }
+    }
+
+    suspend fun setHideSearchBar(hidden: Boolean) {
+        context.themeDataStore.edit { it[Keys.HIDE_SEARCH_BAR] = hidden }
+    }
+
     // ── 导入配置 ────────────────────────────────
 
     /** 读取当前主题设置（导出配置用） */
@@ -77,6 +120,13 @@ class SettingsRepository(private val context: Context) {
             it[Keys.SEED_COLOR] = s.seedColor
             it[Keys.HAPTIC] = s.hapticIntensity.ordinal
             it[Keys.TAB_MULTI_LAYER] = s.tabMultiLayer
+            it[Keys.BG_ENABLED] = s.bgEnabled
+            it[Keys.BG_BRIGHTNESS] = s.bgBrightness.coerceIn(0.2f, 1f)
+            it[Keys.BG_BLUR] = s.bgBlur.coerceIn(0f, 25f)
+            it[Keys.BG_SCALE_TYPE] = s.bgScaleType.ordinal
+            it[Keys.PANEL_OPACITY] = s.panelOpacity.coerceIn(0.1f, 1f)
+            it[Keys.PANEL_BLUR] = s.panelBlur.coerceIn(0f, 30f)
+            it[Keys.HIDE_SEARCH_BAR] = s.hideSearchBar
         }
     }
 }

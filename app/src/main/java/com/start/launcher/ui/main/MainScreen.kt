@@ -1,14 +1,27 @@
 package com.start.launcher.ui.main
 
+import android.graphics.BitmapFactory
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,18 +47,23 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -56,27 +74,46 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.toSize
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.start.launcher.data.BackgroundStore
 import com.start.launcher.data.model.AppEntity
 import com.start.launcher.data.model.Category
 import com.start.launcher.data.model.SortType
+import com.start.launcher.data.settings.BgScaleType
+import com.start.launcher.data.settings.ThemeSettings
 import com.start.launcher.theme.Motion
 import com.start.launcher.theme.Spacing
 import com.start.launcher.theme.StartShapes
 import com.start.launcher.ui.common.rememberHaptics
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun MainScreen(viewModel: MainViewModel = viewModel()) {
@@ -85,6 +122,8 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
     val searchQuery by viewModel.searchQuery.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
     val themeSettings by viewModel.themeSettings.collectAsState()
+    val dataReady by viewModel.dataReady.collectAsState()
+    val bgVersion by viewModel.bgVersion.collectAsState()
     val scheme = MaterialTheme.colorScheme
     val haptic = rememberHaptics()
 
@@ -92,6 +131,27 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
     var showCreateDialog by remember { mutableStateOf(false) }
     var settingsCategoryId by remember { mutableStateOf<Long?>(null) }
     var showThemeSettings by remember { mutableStateOf(false) }
+    var settingsMenuExpanded by remember { mutableStateOf(false) }
+    var deleteConfirmCategory by remember { mutableStateOf<Category?>(null) }
+
+    // 顶部面板矩形（窗口坐标）：毛玻璃覆盖层的裁剪区域
+    var topPanelRect by remember { mutableStateOf(Rect.Zero) }
+
+    // 背景位图加载（提升到此处，背景层与毛玻璃面板共用同一张图）
+    val context = LocalContext.current
+    var bgBitmap by remember(themeSettings.bgEnabled) { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(themeSettings.bgEnabled, bgVersion) {
+        bgBitmap = if (themeSettings.bgEnabled) {
+            withContext(Dispatchers.IO) {
+                BackgroundStore.file(context).takeIf { it.exists() }
+                    ?.let { BitmapFactory.decodeFile(it.path)?.asImageBitmap() }
+            }
+        } else {
+            null
+        }
+    }
+    val bgBmp = bgBitmap
+    val searching = searchQuery.isNotBlank()
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -110,154 +170,312 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
         }
     }
 
+    // ── 顶栏内容：搜索框 + 合并的设置入口（分类设置/应用设置） ──
+    val topBarContent: @Composable RowScope.() -> Unit = {
+        if (dataReady && categories.isNotEmpty() && !themeSettings.hideSearchBar) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { viewModel.setSearchQuery(it) },
+                placeholder = { Text("搜索应用...", color = scheme.onSurfaceVariant) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { }),
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(16.dp),
+            )
+            Spacer(Modifier.width(Spacing.sm))
+        }
+        // 统一设置入口：弹出菜单选择「分类设置」或「应用设置」
+        Box {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .border(1.dp, scheme.outlineVariant, CircleShape)
+                    .clickable { haptic(); settingsMenuExpanded = true },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Filled.Settings, contentDescription = "设置", tint = scheme.onSurfaceVariant)
+            }
+            DropdownMenu(
+                expanded = settingsMenuExpanded,
+                onDismissRequest = { settingsMenuExpanded = false },
+            ) {
+                DropdownMenuItem(
+                    text = { Text("分类设置") },
+                    enabled = categories.isNotEmpty(),
+                    onClick = {
+                        settingsMenuExpanded = false
+                        val target = selectedTabId ?: categories.firstOrNull()?.id
+                        if (target != null) settingsCategoryId = target
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("应用设置") },
+                    onClick = {
+                        settingsMenuExpanded = false
+                        showThemeSettings = true
+                    },
+                )
+            }
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(scheme.surface)
-            .systemBarsPadding(),
+            .background(scheme.surface),
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            // ── 顶部栏：搜索 + 设置（设置按钮任何状态下可见） ──
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = Spacing.xl, vertical = Spacing.sm),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (categories.isNotEmpty()) {
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { viewModel.setSearchQuery(it) },
-                        placeholder = { Text("搜索应用...", color = scheme.onSurfaceVariant) },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(onSearch = { }),
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(16.dp),
-                    )
-                    Spacer(Modifier.width(Spacing.sm))
-                }
-                // 设置按钮
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .border(1.dp, scheme.outlineVariant, CircleShape)
-                        .clickable { haptic(); showThemeSettings = true },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(Icons.Filled.Settings, contentDescription = "设置", tint = scheme.onSurfaceVariant)
-                }
-            }
+        // ── 自定义背景层：铺满全屏，营造沉浸感 ──
+        BackgroundLayer(bitmap = bgBmp, settings = themeSettings, modifier = Modifier.fillMaxSize())
 
-            if (searchQuery.isNotBlank()) {
-                SearchResultsList(
-                    apps = searchResults,
-                    viewModel = viewModel,
-                    onLaunch = { viewModel.launchApp(it) },
-                )
-            } else {
-                // ── 分类胶囊页签 ──────────────────────
-                if (categories.isNotEmpty()) {
-                    CapsuleTabRow(
-                        categories = categories,
-                        selectedId = selectedTabId,
-                        multiLayer = themeSettings.tabMultiLayer,
-                        onSelect = { selectedTabId = it },
-                        onCreateClick = { showCreateDialog = true },
-                    )
-                    Spacer(Modifier.height(Spacing.md))
+        // ── 毛玻璃覆盖层：与主背景结构级对齐（同 bitmap/同 ContentScale/同 fillMaxSize），圆角裁剪到面板区域 ──
+        bgBmp?.let {
+            GlassOverlay(
+                bitmap = it,
+                rect = topPanelRect,
+                cornerRadiusDp = 20f,
+                scaleType = bgContentScale(themeSettings.bgScaleType),
+                blurTotal = themeSettings.bgBlur + themeSettings.panelBlur,
+                bgBrightness = themeSettings.bgBrightness,
+                panelOpacity = themeSettings.panelOpacity,
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .systemBarsPadding(),
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                // ── 顶部区域：顶栏 + 收藏栏连成一整块（背景模式下共用一块毛玻璃面板） ──
+                if (bgBmp != null) {
+                    // 面板本体：透明占位 + 上报矩形位置；毛玻璃视觉由根级 GlassOverlay 绘制
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = Spacing.lg, vertical = Spacing.xs)
+                            .onGloballyPositioned {
+                                topPanelRect = Rect(it.positionInRoot(), it.size.toSize())
+                            },
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = Spacing.md, vertical = Spacing.xs),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                topBarContent()
+                            }
+                            // 收藏栏：搜索时收起，面板高度随之动画收缩
+                            AnimatedVisibility(
+                                visible = !searching && dataReady && categories.isNotEmpty(),
+                                enter = fadeIn(tween(200)) +
+                                    expandVertically(tween(240, easing = FastOutSlowInEasing)),
+                                exit = fadeOut(tween(150)) +
+                                    shrinkVertically(tween(200, easing = FastOutSlowInEasing)),
+                            ) {
+                                Column(modifier = Modifier.padding(bottom = Spacing.sm)) {
+                                    CapsuleTabRow(
+                                        categories = categories,
+                                        selectedId = selectedTabId,
+                                        multiLayer = themeSettings.tabMultiLayer,
+                                        onSelect = { selectedTabId = it },
+                                        onCreateClick = { showCreateDialog = true },
+                                        onEdit = { settingsCategoryId = it.id },
+                                        onDelete = { deleteConfirmCategory = it },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = Spacing.xl, vertical = Spacing.sm),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        topBarContent()
+                    }
+                    AnimatedVisibility(
+                        visible = !searching && dataReady && categories.isNotEmpty(),
+                        enter = fadeIn(tween(200)) +
+                            expandVertically(tween(240, easing = FastOutSlowInEasing)),
+                        exit = fadeOut(tween(150)) +
+                            shrinkVertically(tween(200, easing = FastOutSlowInEasing)),
+                    ) {
+                        Column(modifier = Modifier.padding(top = Spacing.xs, bottom = Spacing.md)) {
+                            CapsuleTabRow(
+                                categories = categories,
+                                selectedId = selectedTabId,
+                                multiLayer = themeSettings.tabMultiLayer,
+                                onSelect = { selectedTabId = it },
+                                onCreateClick = { showCreateDialog = true },
+                                onEdit = { settingsCategoryId = it.id },
+                                onDelete = { deleteConfirmCategory = it },
+                            )
+                        }
+                    }
                 }
 
                 // ── 内容区 ─────────────────────────────
-                when {
-                    categories.isEmpty() -> {
-                        EmptyState(onCreateClick = { showCreateDialog = true })
-                    }
-                    selectedTabId == null -> {
-                        LaunchedEffect(categories) {
-                            if (categories.isNotEmpty() && selectedTabId == null) {
-                                selectedTabId = categories.first().id
-                            }
-                        }
-                    }
-                    else -> {
-                        val category = categories.find { it.id == selectedTabId }
-                        if (category != null) {
-                            val categoryApps = remember(allApps, category.id, category.sortType) {
-                                sortedApps(allApps.filter { it.categoryId == category.id }, category.sortType)
-                            }
-                            CategoryCard(
-                                category = category,
-                                apps = categoryApps,
-                                viewModel = viewModel,
-                                onSettingsClick = { settingsCategoryId = category.id },
-                                onSnackbar = { msg -> showSnackbar(msg) },
-                            )
-                        } else {
-                            // 选中分类已不存在（如导入配置后），重新选中第一个
-                            LaunchedEffect(categories) {
-                                if (categories.isNotEmpty()) selectedTabId = categories.first().id
+                Crossfade(
+                    targetState = searching,
+                    animationSpec = tween(220, easing = FastOutSlowInEasing),
+                    label = "mainContent",
+                ) { s ->
+                    if (s) {
+                        SearchResultsList(
+                            apps = searchResults,
+                            viewModel = viewModel,
+                            onLaunch = { viewModel.launchApp(it) },
+                        )
+                    } else {
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            when {
+                                // 数据未就绪：显示加载态，避免空状态在启动瞬间闪现
+                                !dataReady -> {
+                                    Box(
+                                        Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        CircularProgressIndicator()
+                                    }
+                                }
+                                categories.isEmpty() -> {
+                                    EmptyState(onCreateClick = { showCreateDialog = true })
+                                }
+                                selectedTabId == null -> {
+                                    LaunchedEffect(categories) {
+                                        if (categories.isNotEmpty() && selectedTabId == null) {
+                                            selectedTabId = categories.first().id
+                                        }
+                                    }
+                                }
+                                else -> {
+                                    val category = categories.find { it.id == selectedTabId }
+                                    if (category != null) {
+                                        val categoryApps = remember(allApps, category.id, category.sortType) {
+                                            sortedApps(allApps.filter { it.categoryId == category.id }, category.sortType)
+                                        }
+                                        CategoryCard(
+                                            category = category,
+                                            apps = categoryApps,
+                                            viewModel = viewModel,
+                                            onSnackbar = { msg -> showSnackbar(msg) },
+                                        )
+                                    } else {
+                                        // 选中分类已不存在（如导入配置后），重新选中第一个
+                                        LaunchedEffect(categories) {
+                                            if (categories.isNotEmpty()) selectedTabId = categories.first().id
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
+
+            // ── Snackbar ────────────────────────────────
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(Spacing.xl),
+            ) { data ->
+                Snackbar(
+                    snackbarData = data,
+                    containerColor = scheme.surfaceContainerHighest,
+                    contentColor = scheme.onSurface,
+                )
+            }
         }
 
-        // ── Snackbar ────────────────────────────────
-        SnackbarHost(
-            hostState = snackbarHostState,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(Spacing.xl),
-        ) { data ->
-            Snackbar(
-                snackbarData = data,
-                containerColor = scheme.surfaceContainerHighest,
-                contentColor = scheme.onSurface,
+        // ── 创建分类对话框（底部滑入过渡） ──────────
+        AnimatedVisibility(
+            visible = showCreateDialog,
+            enter = slideInVertically(tween(320, easing = FastOutSlowInEasing)) { it } +
+                fadeIn(tween(220, easing = FastOutSlowInEasing)),
+            exit = slideOutVertically(tween(280, easing = FastOutSlowInEasing)) { it } +
+                fadeOut(tween(180)),
+        ) {
+            CreateCategoryDialog(
+                viewModel = viewModel,
+                onDismiss = { showCreateDialog = false },
+                onCreated = { id ->
+                    showCreateDialog = false
+                    selectedTabId = id
+                    showSnackbar("分类已创建")
+                },
             )
         }
-    }
 
-    // ── 创建分类对话框 ─────────────────────────
-    if (showCreateDialog) {
-        CreateCategoryDialog(
-            viewModel = viewModel,
-            onDismiss = { showCreateDialog = false },
-            onCreated = { id ->
-                showCreateDialog = false
-                selectedTabId = id
-                showSnackbar("分类已创建")
-            },
-        )
-    }
+        // ── 分类设置对话框（底部滑入过渡） ───────────
+        val settingsCategory = settingsCategoryId?.let { id -> categories.find { it.id == id } }
+        var lastSettingsCategory by remember { mutableStateOf<Category?>(null) }
+        LaunchedEffect(settingsCategory) {
+            if (settingsCategory != null) lastSettingsCategory = settingsCategory
+        }
+        AnimatedVisibility(
+            visible = settingsCategory != null,
+            enter = slideInVertically(tween(320, easing = FastOutSlowInEasing)) { it } +
+                fadeIn(tween(220, easing = FastOutSlowInEasing)),
+            exit = slideOutVertically(tween(280, easing = FastOutSlowInEasing)) { it } +
+                fadeOut(tween(180)),
+        ) {
+            lastSettingsCategory?.let { cat ->
+                CategorySettingsDialog(
+                    category = cat,
+                    viewModel = viewModel,
+                    onDismiss = { settingsCategoryId = null },
+                    onSnackbar = { msg -> showSnackbar(msg) },
+                )
+            }
+        }
 
-    // ── 分类设置对话框 ──────────────────────────
-    settingsCategoryId?.let { id ->
-        categories.find { it.id == id }?.let { cat ->
-            CategorySettingsDialog(
-                category = cat,
+        // ── 主题设置对话框（中心缩放过渡） ───────────
+        AnimatedVisibility(
+            visible = showThemeSettings,
+            enter = fadeIn(tween(200)) +
+                scaleIn(initialScale = 0.92f, animationSpec = tween(280, easing = FastOutSlowInEasing)),
+            exit = fadeOut(tween(160)) +
+                scaleOut(targetScale = 0.96f, animationSpec = tween(200)),
+        ) {
+            ThemeSettingsDialog(
                 viewModel = viewModel,
-                onDismiss = { settingsCategoryId = null },
+                onDismiss = { showThemeSettings = false },
+                onRefreshApps = {
+                    showThemeSettings = false
+                    viewModel.refreshApps { added, removed ->
+                        showSnackbar("已刷新：新增 $added 个，移除 $removed 个应用")
+                    }
+                },
                 onSnackbar = { msg -> showSnackbar(msg) },
             )
         }
-    }
 
-    // ── 主题设置对话框 ──────────────────────────
-    if (showThemeSettings) {
-        ThemeSettingsDialog(
-            viewModel = viewModel,
-            onDismiss = { showThemeSettings = false },
-            onRefreshApps = {
-                showThemeSettings = false
-                viewModel.refreshApps { added, removed ->
-                    showSnackbar("已刷新：新增 $added 个，移除 $removed 个应用")
-                }
-            },
-            onSnackbar = { msg -> showSnackbar(msg) },
-        )
+        // ── 删除分类确认 ─────────────────────────────
+        deleteConfirmCategory?.let { cat ->
+            AlertDialog(
+                onDismissRequest = { deleteConfirmCategory = null },
+                title = { Text("删除分类") },
+                text = { Text("确定删除「${cat.name}」吗？分类内的应用不会被卸载，仅从此分类移除。") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        deleteConfirmCategory = null
+                        if (selectedTabId == cat.id) selectedTabId = null
+                        viewModel.deleteCategory(cat.id)
+                        showSnackbar("分类「${cat.name}」已删除")
+                    }) { Text("删除", color = scheme.error) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { deleteConfirmCategory = null }) { Text("取消") }
+                },
+            )
+        }
     }
 }
 
@@ -277,6 +495,106 @@ private fun sortedApps(apps: List<AppEntity>, sortType: SortType): List<AppEntit
         SortType.RECENT -> pinned.sortedByDescending { it.lastLaunchTime }
     }
     return sortedPinned + sortedNormal
+}
+
+// ── 主页面背景层 ──────────────────────────────────────────────────
+/**
+ * 自定义背景：私有目录里的图片 + 亮度遮罩 + 模糊。
+ * 位图由 MainScreen 加载传入（背景层与毛玻璃面板共用同一张图）。
+ */
+@Composable
+private fun BackgroundLayer(bitmap: ImageBitmap?, settings: ThemeSettings, modifier: Modifier = Modifier) {
+    val bmp = bitmap ?: return
+    Box(modifier) {
+        Image(
+            bitmap = bmp,
+            contentDescription = null,
+            contentScale = bgContentScale(settings.bgScaleType),
+            modifier = Modifier
+                .fillMaxSize()
+                .then(if (settings.bgBlur > 0f) Modifier.blur(settings.bgBlur.dp) else Modifier),
+        )
+        // 亮度遮罩：亮度越低遮罩越重，保证前景内容可读
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = (1f - settings.bgBrightness).coerceIn(0f, 1f))),
+        )
+    }
+}
+
+private fun bgContentScale(type: BgScaleType): ContentScale = when (type) {
+    BgScaleType.FILL_BOUNDS -> ContentScale.FillBounds
+    BgScaleType.FIT -> ContentScale.Fit
+    BgScaleType.CROP -> ContentScale.Crop
+}
+
+// ── 毛玻璃覆盖层 ──────────────────────────────────────────────────
+/**
+ * 背景图模式下的毛玻璃覆盖：绘制在根布局坐标系，与主背景是结构完全相同的
+ * 兄弟节点（同 bitmap / 同 ContentScale / 同 fillMaxSize），因此像素级对齐、
+ * 永不错位；再用圆角矩形 Path 把整层裁剪到面板矩形（rect 由面板本体上报）。
+ * 模糊 = 主背景模糊(bgBlur) + 面板模糊(panelBlur)，玻璃感叠加在背景之上。
+ */
+@Composable
+private fun GlassOverlay(
+    bitmap: ImageBitmap,
+    rect: Rect,
+    cornerRadiusDp: Float,
+    scaleType: ContentScale,
+    blurTotal: Float,
+    bgBrightness: Float,
+    panelOpacity: Float,
+) {
+    val scheme = MaterialTheme.colorScheme
+    val density = LocalDensity.current
+    // 面板矩形未就绪时不绘制（onGloballyPositioned 在首帧绘制前触发，无闪烁）
+    if (rect.width <= 0f || rect.height <= 0f) return
+
+    val clipPath = remember(rect, cornerRadiusDp, density) {
+        val r = with(density) { cornerRadiusDp.dp.toPx() }
+        Path().apply {
+            addRoundRect(
+                RoundRect(
+                    rect = rect,
+                    topLeft = CornerRadius(r, r),
+                    topRight = CornerRadius(r, r),
+                    bottomLeft = CornerRadius(r, r),
+                    bottomRight = CornerRadius(r, r),
+                ),
+            )
+        }
+    }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .drawWithContent {
+                clipPath(clipPath) { this@drawWithContent.drawContent() }
+            },
+    ) {
+        // 与主背景结构完全一致的全屏图 → 天然对齐
+        Image(
+            bitmap = bitmap,
+            contentDescription = null,
+            contentScale = scaleType,
+            modifier = Modifier
+                .fillMaxSize()
+                .then(if (blurTotal > 0f) Modifier.blur(blurTotal.dp) else Modifier),
+        )
+        // 亮度遮罩（与主背景一致，保证面板内图像亮度与周围相同）
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = (1f - bgBrightness).coerceIn(0f, 1f))),
+        )
+        // 面板底色：不透明度可调
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(scheme.surface.copy(alpha = panelOpacity.coerceIn(0f, 1f))),
+        )
+    }
 }
 
 // ── 空状态 ───────────────────────────────────────────────────────
@@ -314,6 +632,8 @@ private fun CapsuleTabRow(
     multiLayer: Boolean,
     onSelect: (Long) -> Unit,
     onCreateClick: () -> Unit,
+    onEdit: (Category) -> Unit,
+    onDelete: (Category) -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
 
@@ -327,10 +647,12 @@ private fun CapsuleTabRow(
             verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
             categories.forEach { cat ->
-                CapsuleTab(
-                    label = cat.name,
+                CapsuleTabWithMenu(
+                    category = cat,
                     selected = selectedId == cat.id,
-                    onClick = { onSelect(cat.id) },
+                    onSelect = onSelect,
+                    onEdit = onEdit,
+                    onDelete = onDelete,
                     scheme = scheme,
                 )
             }
@@ -343,14 +665,61 @@ private fun CapsuleTabRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             items(categories, key = { it.id }) { cat ->
-                CapsuleTab(
-                    label = cat.name,
+                CapsuleTabWithMenu(
+                    category = cat,
                     selected = selectedId == cat.id,
-                    onClick = { onSelect(cat.id) },
+                    onSelect = onSelect,
+                    onEdit = onEdit,
+                    onDelete = onDelete,
                     scheme = scheme,
                 )
             }
             item { AddCategoryButton(onCreateClick = onCreateClick, scheme = scheme) }
+        }
+    }
+}
+
+/** 分类胶囊 + 长按弹出菜单（编辑 / 删除） */
+@Composable
+private fun CapsuleTabWithMenu(
+    category: Category,
+    selected: Boolean,
+    onSelect: (Long) -> Unit,
+    onEdit: (Category) -> Unit,
+    onDelete: (Category) -> Unit,
+    scheme: androidx.compose.material3.ColorScheme,
+) {
+    var menuExpanded by remember { mutableStateOf(false) }
+    val haptic = rememberHaptics()
+
+    Box {
+        CapsuleTab(
+            label = category.name,
+            selected = selected,
+            onClick = { onSelect(category.id) },
+            onLongClick = { haptic(); menuExpanded = true },
+            scheme = scheme,
+        )
+        DropdownMenu(
+            expanded = menuExpanded,
+            onDismissRequest = { menuExpanded = false },
+        ) {
+            DropdownMenuItem(
+                text = { Text("编辑") },
+                leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
+                onClick = {
+                    menuExpanded = false
+                    onEdit(category)
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("删除") },
+                leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null) },
+                onClick = {
+                    menuExpanded = false
+                    onDelete(category)
+                },
+            )
         }
     }
 }
@@ -370,11 +739,13 @@ private fun AddCategoryButton(onCreateClick: () -> Unit, scheme: androidx.compos
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun CapsuleTab(
     label: String,
     selected: Boolean,
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
     scheme: androidx.compose.material3.ColorScheme,
 ) {
     val bgColor by animateColorAsState(
@@ -391,7 +762,10 @@ private fun CapsuleTab(
         modifier = Modifier
             .clip(StartShapes.pill)
             .background(bgColor)
-            .clickable { haptic(); onClick() }
+            .combinedClickable(
+                onClick = { haptic(); onClick() },
+                onLongClick = onLongClick,
+            )
             .padding(horizontal = Spacing.xl, vertical = Spacing.sm),
     ) {
         Text(
@@ -409,11 +783,9 @@ private fun CategoryCard(
     category: Category,
     apps: List<AppEntity>,
     viewModel: MainViewModel,
-    onSettingsClick: () -> Unit,
     onSnackbar: (String) -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
-    val haptic = rememberHaptics()
 
     Column(
         modifier = Modifier
@@ -421,34 +793,18 @@ private fun CategoryCard(
             .padding(horizontal = Spacing.xl),
     ) {
         // 分类标题行
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column {
-                Text(
-                    text = category.name,
-                    fontSize = 26.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = scheme.onSurface,
-                )
-                Text(
-                    text = "${apps.size} 个应用",
-                    fontSize = 14.sp,
-                    color = scheme.onSurfaceVariant,
-                )
-            }
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .border(1.dp, scheme.outlineVariant, CircleShape)
-                    .clickable { haptic(); onSettingsClick() },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.Filled.Settings, contentDescription = "分类设置", tint = scheme.onSurfaceVariant)
-            }
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = category.name,
+                fontSize = 26.sp,
+                fontWeight = FontWeight.Bold,
+                color = scheme.onSurface,
+            )
+            Text(
+                text = "${apps.size} 个应用",
+                fontSize = 14.sp,
+                color = scheme.onSurfaceVariant,
+            )
         }
 
         Spacer(Modifier.height(Spacing.lg))
@@ -459,11 +815,10 @@ private fun CategoryCard(
                     Text("此分类还没有应用", color = scheme.onSurfaceVariant, fontSize = 15.sp)
                     Spacer(Modifier.height(Spacing.md))
                     Text(
-                        text = "点击右上角设置按钮添加",
+                        text = "点击顶部齿轮 → 分类设置，添加应用",
                         color = scheme.primary,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium,
-                        modifier = Modifier.clickable { haptic(); onSettingsClick() },
                     )
                 }
             }
@@ -568,7 +923,7 @@ private fun AppGridItem(
             ) {
                 val bmp = iconBitmap
                 if (bmp != null) {
-                    androidx.compose.foundation.Image(
+                    Image(
                         bitmap = bmp,
                         contentDescription = app.appName,
                         contentScale = ContentScale.Fit,
@@ -667,7 +1022,7 @@ private fun SearchResultsList(
             ) {
                 val bmp = iconBitmap
                 if (bmp != null) {
-                    androidx.compose.foundation.Image(
+                    Image(
                         bitmap = bmp,
                         contentDescription = null,
                         contentScale = ContentScale.Fit,

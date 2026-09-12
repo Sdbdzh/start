@@ -1,6 +1,7 @@
 package com.start.launcher.data.config
 
 import com.start.launcher.data.model.SortType
+import com.start.launcher.data.settings.BgScaleType
 import com.start.launcher.data.settings.ColorSource
 import com.start.launcher.data.settings.DarkStyle
 import com.start.launcher.data.settings.HapticIntensity
@@ -74,13 +75,20 @@ fun ExportData.toJson(): String {
     root.put("categories", catsJson)
 
     val themeJson = JSONObject()
-        themeJson.put("mode", theme.mode.name)
-        themeJson.put("darkStyle", theme.darkStyle.name)
-        themeJson.put("colorSource", theme.colorSource.name)
-        themeJson.put("seedColor", theme.seedColor)
-        themeJson.put("hapticIntensity", theme.hapticIntensity.name)
-        themeJson.put("tabMultiLayer", theme.tabMultiLayer)
-        root.put("theme", themeJson)
+    themeJson.put("mode", theme.mode.name)
+    themeJson.put("darkStyle", theme.darkStyle.name)
+    themeJson.put("colorSource", theme.colorSource.name)
+    themeJson.put("seedColor", theme.seedColor)
+    themeJson.put("hapticIntensity", theme.hapticIntensity.name)
+    themeJson.put("tabMultiLayer", theme.tabMultiLayer)
+    themeJson.put("bgEnabled", theme.bgEnabled)
+    themeJson.put("bgBrightness", theme.bgBrightness.toDouble())
+    themeJson.put("bgBlur", theme.bgBlur.toDouble())
+    themeJson.put("bgScaleType", theme.bgScaleType.name)
+    themeJson.put("panelOpacity", theme.panelOpacity.toDouble())
+    themeJson.put("panelBlur", theme.panelBlur.toDouble())
+    themeJson.put("hideSearchBar", theme.hideSearchBar)
+    root.put("theme", themeJson)
 
     return root.toString(2)
 }
@@ -138,6 +146,13 @@ fun parseExportData(json: String): ExportData? {
                     HapticIntensity.FOLLOW_SYSTEM,
                 ),
                 tabMultiLayer = themeJson.optBoolean("tabMultiLayer", false),
+                bgEnabled = themeJson.optBoolean("bgEnabled", false),
+                bgBrightness = themeJson.optDouble("bgBrightness", 1.0).toFloat().coerceIn(0.2f, 1f),
+                bgBlur = themeJson.optDouble("bgBlur", 0.0).toFloat().coerceIn(0f, 25f),
+                bgScaleType = enumValueOrDefault(themeJson.optString("bgScaleType"), BgScaleType.CROP),
+                panelOpacity = themeJson.optDouble("panelOpacity", 0.55).toFloat().coerceIn(0.1f, 1f),
+                panelBlur = themeJson.optDouble("panelBlur", 12.0).toFloat().coerceIn(0f, 30f),
+                hideSearchBar = themeJson.optBoolean("hideSearchBar", false),
             )
         } else {
             ThemeSettings()
